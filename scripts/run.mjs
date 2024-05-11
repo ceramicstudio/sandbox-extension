@@ -1,82 +1,41 @@
-import ora from 'ora'
-
-import { spawn } from "child_process"
-import { EventEmitter } from 'events'
-import { writeComposite } from './composites.mjs';
-
-const events = new EventEmitter()
-const spinner = ora();
-
-const ceramic = spawn("npm", ["run", "ceramic"]);
-ceramic.stdout.on("data", (buffer) => {
-  console.log('[Ceramic]', buffer.toString())
-  if (buffer.toString().includes("0.0.0.0:7007")) {
-    events.emit("ceramic", true);
-    spinner.succeed("ceramic node started");
-  }
-})
-
-ceramic.stderr.on('data', (err) => {
-  console.log(err.toString())
-})
-
-const bootstrap = async () => {
-  // TODO: convert to event driven to ensure functions run in correct orders after releasing the bytestream.
-  // TODO: check if .grapql files match their .json counterparts
-  //       & do not create the model if it already exists & has not been updated
-  try {
-    spinner.info("[Composites] bootstrapping composites");
-    await writeComposite(spinner)
-    spinner.succeed("Composites] composites bootstrapped");
-  } catch (err) {
-    spinner.fail(err.message)
-    ceramic.kill()
-    throw err
-  }
+enum Proficiency {
+  Beginner
+  Intermediate
+  Advanced
+  Expert
 }
 
-const graphiql = async () => {
-  spinner.info("[GraphiQL] starting graphiql");
-  const graphiql = spawn('node', ['./scripts/graphiql.mjs'])
-  spinner.succeed("[GraphiQL] graphiql started");
-  graphiql.stdout.on('data', (buffer) => {
-    console.log('[GraphiqQL]',buffer.toString())
-  })
+type Language {
+  JavaScript: Proficiency
+  Python: Proficiency
+  Rust: Proficiency
+  Java: Proficiency
+  Swift: Proficiency
+  Go: Proficiency
+  Cpp: Proficiency
+  Scala: Proficiency
+  WebAssembly: Proficiency
+  Solidity: Proficiency
+  Other: Proficiency
 }
 
-const next = async () => {
-  const next = spawn('npm', ['run', 'nextDev'])
-  spinner.info("[NextJS] starting nextjs app");
-  next.stdout.on('data', (buffer) => {
-    console.log('[NextJS]', buffer.toString())
-  })
+type CeramicDev
+  @createModel(
+    accountRelation: SET
+    accountRelationFields: ["context"]
+    description: "A Ceramic developer") {
+  developer: DID! @documentAccount
+  context: String! @string(maxLength: 100)
+  languages: Language!
+  attestations: [AttestToDev] @relationFrom(model: "AttestToDev", property: "attestedProfileId")
 }
 
-const start = async () => {
-  try {
-    spinner.start('[Ceramic] Starting Ceramic node\n')
-    events.on('ceramic', async (isRunning) => {
-      if (isRunning) {
-        await bootstrap()
-        await graphiql()
-        await next()
-      }
-      if(isRunning === false) {
-        ceramic.kill()
-        process.exit()
-      }
-    })
-  } catch (err) {
-    ceramic.kill()
-    spinner.fail(err)
-  }
+type AttestToDev @createModel(
+    accountRelation: SET
+    accountRelationFields: ["attestedProfileId"]
+    description: "Signals if user attests to another developer profile") {
+  attester: DID! @documentAccount
+  attestedProfileId: StreamID! @documentReference(model: "CeramicDev")
+  profile: CeramicDev! @relationDocument(property: "attestedProfileId")
+  signal: Boolean!
 }
-
-start()
-
-process.on("SIGTERM", () => {
-  ceramic.kill();
-});
-process.on("beforeExit", () => {
-  ceramic.kill();
-});
